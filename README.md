@@ -4,7 +4,7 @@
 
 ---
 
-## Why you want this — at‑a‑glance
+## Overview
 
 - Combines **all previous PoCs (v1.0 → v2.1)** into one intelligent scanner.  
 - Adds per‑finding:
