@@ -9,18 +9,19 @@
 - Provides full awareness of it is hit or suspected using AI Models
 - Better Exposure
 - Better Confidence
-- Combines **all previous PoCs (v1.0 → v2.1)** into one intelligent scanner.  
 - Adds per‑finding:
   - AI threat tags  
   - **Confidence score** + *Confirmed / Suspected* status.  
   - Human clarifier (e.g. “Check dnslog.cn panel”).  
 - Built‑in **dnslog.cn** beacon payloads for blind SSRF.  
 - **AI‑style adaptive pacing** (`--stealth` on by default) evades WAF / rate limits.  
-- Crawls:
+
+# Crawls:
   - Same‑domain links (`<a href>`).  
   - HTML forms.  
   - JS‑defined `fetch() / axios / XHR` URLs.  
-- Generates one tidy Markdown report → `sxc_findings.md`.
+
+# Generates one tidy Markdown report → `sxc_findings.md`.
 
 ---
 
