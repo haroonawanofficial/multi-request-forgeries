@@ -6,6 +6,9 @@
 
 ## Overview
 
+- Provides full awareness of it is hit or suspected using AI Models
+- Better Exposure
+- Better Confidence
 - Combines **all previous PoCs (v1.0 → v2.1)** into one intelligent scanner.  
 - Adds per‑finding:
   - AI threat tags  
