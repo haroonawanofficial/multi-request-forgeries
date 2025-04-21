@@ -17,7 +17,7 @@
   - Same‑domain links (`<a href>`).  
   - HTML forms.  
   - JS‑defined `fetch() / axios / XHR` URLs.  
-- Generates one tidy Markdown report → `bandesbahan_findings.md`.
+- Generates one tidy Markdown report → `sxc_findings.md`.
 
 ---
 
