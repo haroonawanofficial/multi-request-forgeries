@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # ╔═════════════════════════════════════════════════════════════════════════╗
-# ║   v5.0 – Ultimate Forgery & SSRF Scanner Suite     ║
-# ║ Author : Haroon Ahmad Awan · CyberZeus  (haroon@cyberzeus.pk)          ║
+# ║ Author : Haroon Ahmad Awan · CyberZeus  (haroon@cyberzeus.pk)           ║
 # ║ License: MIT  ·  Offensive testing only                                 ║
 # ╚═════════════════════════════════════════════════════════════════════════╝
 
