@@ -1,63 +1,90 @@
-# **Multi Request Forgery** AI Powered Fuzzer for 0 Day Discovery
+# **Multi Request Forgery** – AI‑Powered Fuzzer for 0‑Day Discovery  
 *Licence • [MIT](LICENSE)  |  Author • Haroon Ahmad Awan (CyberZeus)  |  Date • 2025‑04‑21*
-
 
 ---
 
 ## Overview
 
-- Provides full awareness of it is hit or suspected using AI Models
-- Better Exposure
-- Better Confidence
-- Adds per‑finding:
-  - AI threat tags  
-  - **Confidence score** + *Confirmed / Suspected* status.  
-  - Human clarifier (e.g. “Check dnslog.cn panel”).  
-- Built‑in **dnslog.cn** beacon payloads for blind SSRF.  
-- **AI‑style adaptive pacing** (`--stealth` on by default) evades WAF / rate limits.  
+- Uses **AI models** to assess threat likelihood: *Confirmed / Suspected*
+- Enhances exposure detection accuracy with:
+  - **AI threat tags**
+  - **Confidence score (0‑1)** and explanation
+  - Human clarifier output (e.g. “Check dnslog.cn panel”)
+- Built‑in **blind SSRF beaconing** via `dnslog.cn`
+- **AI‑adaptive stealth pacing** to evade WAFs / rate limits (`--stealth` on by default)
 
-# Crawls:
-  - Same‑domain links (`<a href>`).  
-  - HTML forms.  
-  - JS‑defined `fetch() / axios / XHR` URLs.  
+## Crawling
 
-# Generates one tidy Markdown report → `sxc_findings.md`.
-
----
-
-## Feature matrix
-
-- **Crawler**  
-  - Walks links / forms / JS endpoints.  
-  - Obeys `--max-pages` cap.  
-
-- **SSRF engine**  
-  - Internal IPs, AWS metadata, k8s DNS, `gopher://`, `file://`.  
-  - Blind beacon via **dnslog.cn**.  
-  - Confidence weighting from reflection or content heuristics.  
-
-- **CSRF / XSRF engine**  
-  - Auto‑submitting POST / GET / iframe / fetch payloads.  
-  - Token‑stripping (`text/plain`) tricks.  
-  - Headless Firefox verification.  
-
-- **AI Stealth**  
-  - Adaptive delays for 2xx / 3xx / 4xx‑5xx.  
-  - Toggle with `--no-stealth`.  
-
-- **Reporting**  
-  - Markdown lines with STRIDE tags, confidence 0‑1, status & reason.  
-
-- **Multithreaded**  
-  - `--threads` (default 14) runs endpoints in parallel.  
+- Detects and parses:
+  - Same‑domain hyperlinks (`<a href>`)
+  - HTML forms (GET/POST)
+  - JavaScript endpoints (`fetch`, `axios`, `XHR`)
+- Outputs to a clean Markdown report → `sxc_findings.md`
 
 ---
 
-## Install & run
+## Feature Matrix
+
+### 🧭 **Crawler Engine**
+- Crawls links, forms, and JavaScript-defined endpoints  
+- Honors page limit via `--max-pages`
+
+### 🔁 **Multi-Request Forgery Engines**  
+Includes novel request forgery chains mapped to **STRIDE** categories:
+
+| Technique | Description | STRIDE Tags |
+|----------|-------------|-------------|
+| **SSRF** | Server-Side Request Forgery | Info Disclosure, Priv Esc |
+| **CSRF/XSRF** | Cross-Site Request Forgery | Tampering, Repudiation |
+| **MARSF** | Meta App Request Smuggling Forgery | Chain Exploit, Priv Injection |
+| **RARF** | Recursive / Rebound SSRF | DNS Rebind, Alias SSRF |
+| **VREF** | Verifier Request Forgery | IDOR, Priv Esc |
+| **SREF** | Stored Request Forgery | Stored Abuse |
+| **CLRF** | Client-Logic Request Forgery | CORS Bypass, Auth Leak |
+| **EPRF** | Endpoint Relay Forgery | Message Hijack |
+| **IMRF** | Interface Manipulation Request Forgery | DOM Tamper, UI Forgery |
+| **UDRF** | Upstream Dependency Request Forgery | SDK Abuse |
+
+### 🌐 **SSRF Engine**
+- Probes:
+  - Internal IPs (`127.0.0.1`, `169.254.*.*`)
+  - Cloud metadata (`http://169.254.169.254/`)
+  - Kubernetes DNS
+  - `gopher://`, `file://`, and FTP schemes
+- Detects blind SSRF via DNS beaconing
+
+### 🛡️ **CSRF/XSRF Engine**
+- Auto‑generates and submits:
+  - GET/POST/iframe/fetch/anchor‑based requests
+- Applies token‑removal and `text/plain` tricks
+- Verifies actions via headless Firefox
+
+### 🤖 **AI‑Stealth Engine**
+- Intelligent request pacing based on HTTP response class
+  - Slower for suspicious patterns (e.g., many 403s)
+- Toggle using `--no-stealth`
+
+### 📄 **Reporting**
+- Outputs:
+  - Markdown table with:
+    - URL
+    - Forgery type
+    - STRIDE tags
+    - Confidence score (0–1)
+    - Confirmation status
+    - Reason/explanation
+
+### ⚙️ **Multithreaded Engine**
+- Run requests in parallel  
+- Threads adjustable via `--threads` (default: 14)
+
+---
+
+## Install & Run
 
 ```bash
 git clone https://github.com/haroonawanofficial/sxc.git
 cd sxc
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt        # requests, bs4, fake-useragent, playwright
-playwright install firefox             # one‑time headless driver
+playwright install firefox             # one-time setup
