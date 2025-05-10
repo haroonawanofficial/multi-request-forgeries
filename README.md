@@ -1,4 +1,4 @@
-# **Server Request Forgery** AI Powered Fuzzer for 0 Day Discovery
+# **Multi Request Forgery** AI Powered Fuzzer for 0 Day Discovery
 *Licence • [MIT](LICENSE)  |  Author • Haroon Ahmad Awan (CyberZeus)  |  Date • 2025‑04‑21*
 
 
