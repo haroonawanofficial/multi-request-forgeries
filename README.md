@@ -3,6 +3,11 @@
 
 ---
 
+## Download the full pdf here
+https://cyberzeus.pk/Multi_Request_Forgeries_MRF_AI_Powered_Web_Attack_Fuzzing_for_0_Day_Discovery.pdf
+
+---
+
 ## Overview
 
 - Uses **AI models** to assess threat likelihood: *Confirmed / Suspected*
